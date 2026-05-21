@@ -1,0 +1,318 @@
+# AdventureWorksDemo — Setup Guide
+
+This guide sets up two Docker SQL Server 2025 instances and a Flyway CLI project from scratch.
+
+---
+
+## Prerequisites
+
+- Docker Desktop installed and running (Windows 11)
+- Flyway CLI installed (v12+) and on PATH
+- SQL Server Management Studio (SSMS 19+)
+- `AdventureWorksLT2025.bak` backup file
+
+---
+
+## Step 1 — Create the project folder
+
+```powershell
+mkdir C:\Flyway\AdventureWorksDemo
+```
+
+Place `AdventureWorksLT2025.bak` in that folder.
+
+---
+
+## Step 2 — Create restore.sh
+
+This script starts SQL Server and automatically restores the AdventureWorks backup on first boot.
+
+File: `C:\Flyway\AdventureWorksDemo\restore.sh`
+
+```bash
+#!/bin/bash
+/opt/mssql/bin/sqlservr &
+SQLSERVER_PID=$!
+
+echo "Waiting for SQL Server to start..."
+for i in {1..60}; do
+    /opt/mssql-tools18/bin/sqlcmd -S localhost,1999 -U sa -P "$MSSQL_SA_PASSWORD" -Q "SELECT 1" -No -C > /dev/null 2>&1
+    if [ $? -eq 0 ]; then
+        echo "SQL Server is ready."
+        break
+    fi
+    echo "Attempt $i: SQL Server not ready yet, waiting 2s..."
+    sleep 2
+done
+
+echo "Restoring AdventureWorksLT2025..."
+/opt/mssql-tools18/bin/sqlcmd -S localhost,1999 -U sa -P "$MSSQL_SA_PASSWORD" -No -C -Q "
+RESTORE DATABASE [AdventureWorksLT2025]
+FROM DISK = '/var/opt/mssql/backup/AdventureWorksLT2025.bak'
+WITH MOVE 'AdventureWorksLT2022_Data' TO '/var/opt/mssql/data/AdventureWorksLT2025.mdf',
+     MOVE 'AdventureWorksLT2022_Log'  TO '/var/opt/mssql/data/AdventureWorksLT2025.ldf',
+     REPLACE, STATS = 10;
+"
+
+echo "Restore complete."
+wait $SQLSERVER_PID
+```
+
+> **Note:** The logical file names in this .bak are `AdventureWorksLT2022_Data` / `AdventureWorksLT2022_Log`.
+> If you use a different .bak, verify the names first with:
+> `RESTORE FILELISTONLY FROM DISK = '/var/opt/mssql/backup/AdventureWorksLT2025.bak'`
+
+---
+
+## Step 3 — Create init.sh
+
+Simple startup script for the target (deployment) container.
+
+File: `C:\Flyway\AdventureWorksDemo\init.sh`
+
+```bash
+#!/bin/bash
+/opt/mssql/bin/sqlservr
+```
+
+---
+
+## Step 4 — Create docker-compose.yml
+
+File: `C:\Flyway\AdventureWorksDemo\docker-compose.yml`
+
+```yaml
+services:
+  sqlserver-source:
+    image: mcr.microsoft.com/mssql/server:2025-latest
+    container_name: adventureworks-source
+    user: root
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: "Flyway2025!"
+      MSSQL_TCP_PORT: "1999"
+    ports:
+      - "1999:1999"
+    volumes:
+      - ./AdventureWorksLT2025.bak:/var/opt/mssql/backup/AdventureWorksLT2025.bak:ro
+      - ./restore.sh:/restore.sh:ro
+      - source-data:/var/opt/mssql/data
+    entrypoint: ["/bin/bash", "/restore.sh"]
+    healthcheck:
+      test: ["CMD", "/opt/mssql-tools18/bin/sqlcmd", "-S", "localhost,1999", "-U", "sa", "-P", "Flyway2025!", "-Q", "SELECT 1", "-No", "-C"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  sqlserver-target:
+    image: mcr.microsoft.com/mssql/server:2025-latest
+    container_name: adventureworks-target
+    user: root
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: "Flyway2025!"
+      MSSQL_TCP_PORT: "1989"
+    ports:
+      - "1989:1989"
+    volumes:
+      - ./init.sh:/init.sh:ro
+      - target-data:/var/opt/mssql/data
+    entrypoint: ["/bin/bash", "/init.sh"]
+    healthcheck:
+      test: ["CMD", "/opt/mssql-tools18/bin/sqlcmd", "-S", "localhost,1989", "-U", "sa", "-P", "Flyway2025!", "-Q", "SELECT 1", "-No", "-C"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+volumes:
+  source-data:
+  target-data:
+```
+
+> **Why `user: root`?** SQL Server 2025 containers run as the `mssql` user by default, which cannot
+> initialise a fresh named volume on Docker Desktop for Windows due to file permission restrictions.
+>
+> **Why SQL Server 2025?** The `AdventureWorksLT2025.bak` was created on database version 998.
+> SQL Server 2022 only supports up to version 958 and will reject the restore.
+>
+> **Why custom ports?** Ports 1999 (source) and 1989 (target) avoid conflicts with any local SQL Server
+> instance already running on the default port 1433.
+
+---
+
+## Step 5 — Start the containers
+
+```powershell
+cd C:\Flyway\AdventureWorksDemo
+docker compose up -d
+```
+
+Wait ~30 seconds for the source container to restore AdventureWorks, then verify both are healthy:
+
+```powershell
+docker compose ps
+```
+
+Both containers should show `(healthy)`.
+
+---
+
+## Step 6 — Connect with SSMS (optional verification)
+
+| Instance | Server name     | Login | Password     |
+|----------|-----------------|-------|--------------|
+| Source   | `localhost,1999` | sa    | Flyway2025!  |
+| Target   | `localhost,1989` | sa    | Flyway2025!  |
+
+In the SSMS connection dialog: **Options >> Connection Properties >> Trust server certificate: ✓**
+
+> Do NOT use `C:\...` Windows paths when browsing for files in SSMS — the containers only see
+> their own internal filesystem. The restore is handled automatically at container startup.
+
+---
+
+## Step 7 — Create the Flyway project
+
+```powershell
+mkdir C:\Flyway\AdventureWorksDemo\AdventureWorksFlyway
+cd C:\Flyway\AdventureWorksDemo\AdventureWorksFlyway
+flyway init "-init.projectName=AdventureWorksDemo" "-init.databaseType=sqlserver"
+```
+
+> **PowerShell note:** Parameters containing dots (`.`) must be wrapped in double quotes, otherwise
+> PowerShell misinterprets them. This applies to all `flyway` commands below.
+
+---
+
+## Step 8 — Configure environments
+
+Add the three environment blocks to `flyway.toml` (passwords are kept separate):
+
+```toml
+[environments.development]
+url = "jdbc:sqlserver://localhost:1999;databaseName=AdventureWorksLT2025;encrypt=true;trustServerCertificate=true"
+user = "sa"
+
+[environments.target]
+url = "jdbc:sqlserver://localhost:1989;databaseName=AdventureWorksLT2025;encrypt=true;trustServerCertificate=true"
+user = "sa"
+
+[environments.shadow]
+url = "jdbc:sqlserver://localhost:1989;databaseName=FlywayShadow;encrypt=true;trustServerCertificate=true"
+user = "sa"
+```
+
+Create (or populate) `flyway.user.toml` with passwords — this file is gitignored by default:
+
+```toml
+[environments.development]
+password = "Flyway2025!"
+
+[environments.target]
+password = "Flyway2025!"
+
+[environments.shadow]
+password = "Flyway2025!"
+```
+
+| Environment | Container          | Database            | Purpose                              |
+|-------------|--------------------|---------------------|--------------------------------------|
+| development | adventureworks-source (1999) | AdventureWorksLT2025 | Source of truth, developer sandbox |
+| target      | adventureworks-target (1989) | AdventureWorksLT2025 | Deployment target                  |
+| shadow      | adventureworks-target (1989) | FlywayShadow         | Flyway drift detection              |
+
+---
+
+## Step 9 — Activate Flyway Enterprise
+
+The `diff`, `model`, `snapshot`, and `generate` commands require Flyway Enterprise or Teams.
+
+Authenticate with your Redgate account:
+
+```powershell
+flyway auth -IAgreeToTheEula
+```
+
+If no Enterprise license is allocated to your account in the Redgate portal, start a free 28-day trial:
+
+```powershell
+flyway auth -startEnterpriseTrial -IAgreeToTheEula
+```
+
+---
+
+## Step 10 — Import the existing database into the schema model
+
+Diff the development database against the empty schema model to detect all objects, then write them out as individual SQL files:
+
+```powershell
+cd C:\Flyway\AdventureWorksDemo\AdventureWorksFlyway
+flyway diff "-diff.source=development" "-diff.target=schemaModel" "-environment=development"
+flyway model "-diff.artifactFilename=%temp%\flyway.artifact.diff"
+```
+
+This populates the `schema-model\` directory with one `.sql` file per database object — tables, views,
+functions, stored procedures, types, schemas, etc.
+
+---
+
+## Step 11 — Generate the baseline migration
+
+Diff the schema model against empty to produce a create-everything script, then generate the baseline migration:
+
+```powershell
+flyway diff "-diff.source=schemaModel" "-diff.target=empty"
+flyway generate "-generate.types=baseline" "-generate.description=AdventureWorksLT2025_Baseline"
+```
+
+This creates `migrations\B001_<timestamp>__AdventureWorksLT2025_Baseline.sql`.
+
+Also create the callbacks folder to avoid a harmless warning from flyway.toml:
+
+```powershell
+mkdir C:\Flyway\AdventureWorksDemo\AdventureWorksFlyway\callbacks
+```
+
+---
+
+## Step 12 — Create the target database and deploy
+
+Flyway cannot create a SQL Server database automatically — create it first:
+
+```powershell
+docker exec adventureworks-target bash -c "/opt/mssql-tools18/bin/sqlcmd -S 'localhost,1989' -U sa -P 'Flyway2025!' -No -C -Q 'CREATE DATABASE AdventureWorksLT2025'"
+```
+
+Then run the migration:
+
+```powershell
+cd C:\Flyway\AdventureWorksDemo\AdventureWorksFlyway
+flyway migrate "-environment=target"
+```
+
+Flyway will create the `flyway_schema_history` tracking table, run the baseline migration, and build
+the full AdventureWorks schema on the target from scratch.
+
+---
+
+## Result
+
+| What                  | Where                                              |
+|-----------------------|----------------------------------------------------|
+| Source SQL Server     | `localhost,1999` — AdventureWorksLT2025 (from .bak) |
+| Target SQL Server     | `localhost,1989` — AdventureWorksLT2025 (from Flyway) |
+| Flyway project        | `C:\Flyway\AdventureWorksDemo\AdventureWorksFlyway\` |
+| Schema model          | `...\AdventureWorksFlyway\schema-model\`           |
+| Baseline migration    | `...\AdventureWorksFlyway\migrations\B001_*__AdventureWorksLT2025_Baseline.sql` |
+
+To restart from scratch at any time:
+
+```powershell
+cd C:\Flyway\AdventureWorksDemo
+docker compose down -v
+docker compose up -d
+```
+
+Then re-run Step 12 to recreate the target database and deploy.

@@ -1,0 +1,5 @@
+# Large binary backup — not for source control
+*.bak
+
+# Flyway user config contains passwords
+*.user.toml

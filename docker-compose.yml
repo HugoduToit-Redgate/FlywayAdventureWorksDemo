@@ -1,0 +1,47 @@
+services:
+  sqlserver-source:
+    image: mcr.microsoft.com/mssql/server:2025-latest
+    container_name: adventureworks-source
+    user: root
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: "Flyway2025!"
+      MSSQL_TCP_PORT: "1999"
+    ports:
+      - "1999:1999"
+    volumes:
+      - ./AdventureWorksLT2025.bak:/var/opt/mssql/backup/AdventureWorksLT2025.bak:ro
+      - ./restore.sh:/restore.sh:ro
+      - source-data:/var/opt/mssql/data
+    entrypoint: ["/bin/bash", "/restore.sh"]
+    healthcheck:
+      test: ["CMD", "/opt/mssql-tools18/bin/sqlcmd", "-S", "localhost,1999", "-U", "sa", "-P", "Flyway2025!", "-Q", "SELECT 1", "-No", "-C"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  sqlserver-target:
+    image: mcr.microsoft.com/mssql/server:2025-latest
+    container_name: adventureworks-target
+    user: root
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: "Flyway2025!"
+      MSSQL_TCP_PORT: "1989"
+    ports:
+      - "1989:1989"
+    volumes:
+      - ./init.sh:/init.sh:ro
+      - target-data:/var/opt/mssql/data
+    entrypoint: ["/bin/bash", "/init.sh"]
+    healthcheck:
+      test: ["CMD", "/opt/mssql-tools18/bin/sqlcmd", "-S", "localhost,1989", "-U", "sa", "-P", "Flyway2025!", "-Q", "SELECT 1", "-No", "-C"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+volumes:
+  source-data:
+  target-data:
