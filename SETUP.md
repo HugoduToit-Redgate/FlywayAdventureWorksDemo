@@ -97,6 +97,7 @@ In the SSMS connection dialog: **Options >> Connection Properties >> Trust serve
 mkdir C:\Flyway\AdventureWorksDemo\AdventureWorksFlyway
 cd C:\Flyway\AdventureWorksDemo\AdventureWorksFlyway
 flyway init "-init.projectName=AdventureWorksDemo" "-init.databaseType=sqlserver"
+md callbacks ##Bug where folder does not get created
 ```
 
 > **PowerShell note:** Parameters containing dots (`.`) must be wrapped in double quotes, otherwise
