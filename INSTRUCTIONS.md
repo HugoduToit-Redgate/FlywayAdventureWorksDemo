@@ -294,6 +294,7 @@ To restart from scratch at any time:
 cd C:\Flyway\AdventureWorksDemo
 docker compose down -v
 docker compose up -d
+del AdventureworksFlyway
 ```
 
 Then re-run Step 9 to recreate the target database and deploy.
