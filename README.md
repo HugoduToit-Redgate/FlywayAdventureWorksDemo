@@ -6,5 +6,5 @@ Subsequently, you can use Flyway to:
   - Apply the snapshot to a newly created target database
   - You can then go ahead and perform another migration, using Flyway-My1stMigration on the source SQL instance
 
-## See SETUP.md for details and prerequisites
-https://github.com/HugoduToit-Redgate/FlywayAdventureWorksDemo/blob/master/SETUP.md#adventureworksdemo--setup-guide
+## See INSTRUCTIONS.md for details and prerequisites
+https://github.com/HugoduToit-Redgate/FlywayAdventureWorksDemo/blob/master/INSTRUCTIONS.md

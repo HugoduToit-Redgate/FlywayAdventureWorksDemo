@@ -79,10 +79,10 @@ Both containers should show `(healthy)`.
 
 ## Step 3 — Connect with SSMS (optional verification)
 
-| Instance | Server name     | Login | Password     |
-|----------|-----------------|-------|--------------|
-| Source   | `localhost,1999` | sa    | Flyway2025!  |
-| Target   | `localhost,1989` | sa    | Flyway2025!  |
+| Instance | Server name      | Login | Password    |
+|----------|------------------|-------|-------------|
+| Source   | `localhost,1999` | sa    | Flyway2025! |
+| Target   | `localhost,1989` | sa    | Flyway2025! |
 
 In the SSMS connection dialog: **Options >> Connection Properties >> Trust server certificate: ✓**
 
@@ -136,10 +136,10 @@ password = "Flyway2025!"
 password = "Flyway2025!"
 ```
 
-| Environment | Container          | Database            | Purpose                              |
-|-------------|--------------------|---------------------|--------------------------------------|
-| development | adventureworks-source (1999) | AdventureWorksLT2025 | Source of truth, developer sandbox |
-| target      | adventureworks-target (1989) | AdventureWorksLT2025 | Deployment target                  |
+| Environment | Container                    | Database             | Purpose                             |
+|-------------|------------------------------|----------------------|-------------------------------------|
+| development | adventureworks-source (1999) | AdventureWorksLT2025 | Source of truth, developer sandbox  |
+| target      | adventureworks-target (1989) | AdventureWorksLT2025 | Deployment target                   |
 | shadow      | adventureworks-target (1989) | FlywayShadow         | Flyway drift detection              |
 
 ---
@@ -216,15 +216,77 @@ the full AdventureWorks schema on the target from scratch.
 
 ---
 
+## Step 10 — Apply a schema change and migrate to target
+
+This step demonstrates the full Flyway migration workflow using `Demo-NewTable-Source.sql`, which
+creates a new table on the source database.
+
+### 10a — Apply the change to source
+
+Copy the script into the source container and run it:
+
+```powershell
+docker cp "C:\Flyway\AdventureWorksDemo\AdventureWorksFlyway\Demo-NewTable-Source.sql" adventureworks-source:/tmp/Demo-NewTable-Source.sql
+
+docker exec adventureworks-source bash -c "/opt/mssql-tools18/bin/sqlcmd -S 'localhost,1999' -U sa -P 'Flyway2025!' -No -C -i '/tmp/Demo-NewTable-Source.sql'"
+```
+
+Or run `Demo-NewTable-Source.sql` directly from SSMS connected to `localhost,1999`.
+
+### 10b — Detect the change
+
+Compare the development database against the schema model:
+
+```powershell
+cd C:\Flyway\AdventureWorksDemo\AdventureWorksFlyway
+flyway diff "-diff.source=development" "-diff.target=schemaModel" "-environment=development"
+```
+
+The new table should appear as **Add** in the output.
+
+### 10c — Update the schema model
+
+```powershell
+flyway model "-diff.artifactFilename=%temp%\flyway.artifact.diff"
+```
+
+### 10d — Confirm what target is missing
+
+```powershell
+flyway diff "-diff.source=schemaModel" "-diff.target=target" "-environment=target"
+```
+
+### 10e — Generate the versioned migration
+
+```powershell
+flyway generate "-generate.description=Add_ThisIsANewTableForFlywayDemo"
+```
+
+This creates `migrations\V002_<timestamp>__Add_ThisIsANewTableForFlywayDemo.sql`.
+
+### 10f — Deploy to target
+
+```powershell
+flyway migrate "-environment=target"
+```
+
+### 10g — Verify
+
+```powershell
+flyway info "-environment=target"
+```
+
+---
+
 ## Result
 
-| What                  | Where                                              |
-|-----------------------|----------------------------------------------------|
-| Source SQL Server     | `localhost,1999` — AdventureWorksLT2025 (from .bak) |
-| Target SQL Server     | `localhost,1989` — AdventureWorksLT2025 (from Flyway) |
-| Flyway project        | `C:\Flyway\AdventureWorksDemo\AdventureWorksFlyway\` |
-| Schema model          | `...\AdventureWorksFlyway\schema-model\`           |
-| Baseline migration    | `...\AdventureWorksFlyway\migrations\B001_*__AdventureWorksLT2025_Baseline.sql` |
+| What               | Where                                                                           |
+|--------------------|---------------------------------------------------------------------------------|
+| Source SQL Server  | `localhost,1999` — AdventureWorksLT2025 (from .bak)                            |
+| Target SQL Server  | `localhost,1989` — AdventureWorksLT2025 (from Flyway)                          |
+| Flyway project     | `C:\Flyway\AdventureWorksDemo\AdventureWorksFlyway\`                            |
+| Schema model       | `...\AdventureWorksFlyway\schema-model\`                                        |
+| Baseline migration | `...\AdventureWorksFlyway\migrations\B001_*__AdventureWorksLT2025_Baseline.sql` |
 
 To restart from scratch at any time:
 
@@ -234,4 +296,4 @@ docker compose down -v
 docker compose up -d
 ```
 
-Then re-run Step 12 to recreate the target database and deploy.
+Then re-run Step 9 to recreate the target database and deploy.
