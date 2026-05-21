@@ -50,13 +50,13 @@ File: `C:\Flyway\AdventureWorksDemo\docker-compose.yml`
 
 ---
 
-## Step 1 — Create the project folder
+## Step 1 — Create the project folder if not created already
 
 ```powershell
 mkdir C:\Flyway\AdventureWorksDemo
 ```
 
-Place `AdventureWorksLT2025.bak` in that folder.
+Place `AdventureWorksLT2025.bak` in that folder (if not present already).
 
 ---
 
