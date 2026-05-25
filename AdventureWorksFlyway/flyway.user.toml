@@ -1,8 +1,0 @@
-[environments.development]
-password = "Flyway2025!"
-
-[environments.target]
-password = "Flyway2025!"
-
-[environments.shadow]
-password = "Flyway2025!"
