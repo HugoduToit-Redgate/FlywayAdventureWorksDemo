@@ -259,7 +259,7 @@ flyway diff "-diff.source=schemaModel" "-diff.target=target" "-environment=targe
 ### 10e — Generate the versioned migration
 
 ```powershell
-flyway generate "-generate.description=Add_ThisIsANewTableForFlywayDemo"
+flyway generate "-generate.types=versioned,undo" "-generate.description=Add_ThisIsANewTableForFlywayDemo"
 ```
 
 This creates `migrations\V002_<timestamp>__Add_ThisIsANewTableForFlywayDemo.sql`.
